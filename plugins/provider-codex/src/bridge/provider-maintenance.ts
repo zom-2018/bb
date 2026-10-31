@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import path from "node:path";
 import {
   type ProviderHealthResult,
   type ProviderInstallationRunResult,
@@ -69,16 +71,29 @@ function minimumSupportedVersionForRequirement(
     : CODEX_MINIMUM_SUPPORTED_VERSION;
 }
 
-function codexUpdateCommand(): {
+async function isHomebrewCaskInstall(
+  executablePath: string | null,
+): Promise<boolean> {
+  if (executablePath === null) return false;
+  try {
+    const target = await realpath(executablePath);
+    return target.includes(`${path.sep}Caskroom${path.sep}codex${path.sep}`);
+  } catch {
+    return false;
+  }
+}
+
+function codexUpdateCommand(homebrewCask: boolean): {
   command: string;
   args: string[];
   displayCommand: string;
 } {
-  const args = ["update"];
+  const command = homebrewCask ? "brew" : "codex";
+  const args = homebrewCask ? ["upgrade", "--cask", "codex"] : ["update"];
   return {
-    command: "codex",
+    command,
     args,
-    displayCommand: formatCommand("codex", args),
+    displayCommand: formatCommand(command, args),
   };
 }
 
@@ -97,6 +112,7 @@ export async function getCodexProviderInstallationStatus(
         ? probeNpmGlobalPackage(CODEX_NPM_PACKAGE)
         : { npmBin: null, npmGlobalPackageVersion: null },
     ]);
+  const homebrewCask = await isHomebrewCaskInstall(resolvedExecutable);
   const installed = resolvedExecutable !== null || versionOutput !== null;
   const currentVersion = versionFrom(versionOutput);
   const needsUpdate =
@@ -138,7 +154,7 @@ export async function getCodexProviderInstallationStatus(
             command:
               actionKind === "install"
                 ? npmGlobalInstallCommand(CODEX_NPM_PACKAGE).displayCommand
-                : codexUpdateCommand().displayCommand,
+                : codexUpdateCommand(homebrewCask).displayCommand,
           },
     needsUpdate,
     versionUnsupported,
@@ -149,12 +165,14 @@ export async function getCodexProviderInstallationRun(
   action: "install" | "update",
 ): Promise<ProviderInstallationRunResult> {
   const status = await getCodexProviderInstallationStatus();
-  return buildCodexProviderInstallationRun(status, action);
+  const homebrewCask = await isHomebrewCaskInstall(status.executablePath);
+  return buildCodexProviderInstallationRun(status, action, homebrewCask);
 }
 
 function buildCodexProviderInstallationRun(
   status: ProviderInstallationStatus,
   action: "install" | "update",
+  homebrewCask = false,
 ): ProviderInstallationRunResult {
   if (status.installAction?.kind !== action) {
     return {
@@ -167,7 +185,7 @@ function buildCodexProviderInstallationRun(
     command:
       action === "install"
         ? npmGlobalInstallCommand(CODEX_NPM_PACKAGE)
-        : codexUpdateCommand(),
+        : codexUpdateCommand(homebrewCask),
     verification: installationVerification(status, action),
   };
 }
@@ -403,6 +421,7 @@ export async function getCodexProviderUsage(): Promise<ProviderUsageResult> {
 
 export const __testing = {
   buildProviderInstallationRun: buildCodexProviderInstallationRun,
+  isHomebrewCaskInstall,
   minimumSupportedVersionForRequirement,
   normalizeUsage,
 };

@@ -129,6 +129,67 @@ describe("Codex provider maintenance", () => {
       message: "Codex install is no longer available on this host.",
     });
   });
+
+  it("upgrades a Homebrew cask install through brew instead of codex update", () => {
+    expect(
+      __testing.buildProviderInstallationRun(
+        installationStatus(),
+        "update",
+        true,
+      ),
+    ).toEqual({
+      available: true,
+      command: {
+        command: "brew",
+        args: ["upgrade", "--cask", "codex"],
+        displayCommand: "brew upgrade --cask codex",
+      },
+      verification: { kind: "version_at_least", version: "1.1.0" },
+    });
+  });
+});
+
+describe("Codex Homebrew cask detection", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "bb-codex-brew-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { force: true, recursive: true });
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "recognises a Linuxbrew cask codex reached through its bin symlink",
+    async () => {
+      const caskBin = path.join(tempDir, "Caskroom", "codex", "0.164.0", "bin");
+      const linkDir = path.join(tempDir, "bin");
+      await fs.mkdir(caskBin, { recursive: true });
+      await fs.mkdir(linkDir);
+      const target = path.join(caskBin, "codex");
+      await fs.writeFile(target, "");
+      await fs.symlink(target, path.join(linkDir, "codex"));
+
+      await expect(
+        __testing.isHomebrewCaskInstall(path.join(linkDir, "codex")),
+      ).resolves.toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "does not treat a plain npm-style binary as a Homebrew cask",
+    async () => {
+      const binDir = path.join(tempDir, "bin");
+      await fs.mkdir(binDir);
+      await fs.writeFile(path.join(binDir, "codex"), "");
+
+      await expect(
+        __testing.isHomebrewCaskInstall(path.join(binDir, "codex")),
+      ).resolves.toBe(false);
+      await expect(__testing.isHomebrewCaskInstall(null)).resolves.toBe(false);
+    },
+  );
 });
 
 describe("Codex credential health and usage", () => {
